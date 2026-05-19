@@ -39,11 +39,26 @@ Create `~/.config/opencode/AGENTS.md`:
 ```markdown
 # Memory & Knowledge instructions
 
-Before answering the user, always search your MemPalace memory for relevant context using the MCP tools.
+## CRITICAL: You MUST follow these steps BEFORE every response.
 
-1. **Search MemPalace**: Call `mempalace_search` with the user's question or key topics as query. Get the top 5-10 most relevant memory drawers.
-2. **Query Knowledge Graph**: Call `mempalace_kg_query` for entity "user". Then filter the returned facts — keep only those whose text contains keywords from the user's question.
-3. **Use the context**: Incorporate relevant memory and facts into your response, referencing the source naturally when useful.
+### Step 1 — Search MemPalace
+Call `mempalace_search` with the user's question or key topics as query. Get the top 5-10 most relevant memory drawers.
+**This is mandatory. Never skip this step.**
+
+### Step 2 — Query Knowledge Graph
+Call `mempalace_kg_query` for entity "user". Then filter the returned facts — keep only those whose text contains keywords from the user's question, so irrelevant facts are excluded.
+
+### Step 3 — Use the context
+Incorporate relevant memory and facts into your response. If the user's question relates to a past conversation, project, or decision, reference it naturally.
+
+## When to skip (rare exceptions only)
+
+- The user's question is purely conversational ("how are you?", "hello") and clearly doesn't benefit from memory
+- The question is about the current context or files already visible in the conversation
+
+## Note
+
+The KG stores structured facts like: decision (choices made), milestone (completed tasks), problem (issues encountered), preference (likes/dislikes), emotional (feelings). Use these to understand the user's history and context better.
 ```
 
 ### 3. Identity (who you are)
