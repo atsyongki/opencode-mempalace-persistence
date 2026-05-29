@@ -14,7 +14,7 @@ An OpenCode plugin that automatically saves every conversation to MemPalace and 
 |---|---|
 | Every session starts from scratch | The model knows who you are and what you've done |
 | You repeat context each time | Memory is automatic |
-| No Knowledge Graph | Decisions, milestones, problems tracked |
+| Model starts from scratch each time | Memory persists across sessions |
 
 The model searches MemPalace on every question (via AGENTS.md + MCP), and the plugin saves every response. A perfect feedback loop.
 
@@ -42,23 +42,37 @@ Create `~/.config/opencode/AGENTS.md`:
 ## CRITICAL: You MUST follow these steps BEFORE every response.
 
 ### Step 1 — Search MemPalace
-Call `mempalace_search` with the user's question or key topics as query. Get the top 5-10 most relevant memory drawers.
-**This is mandatory. Never skip this step.**
+Call `mempalace_mempalace_search` with the user's question or key topics as query. Get the top 5-10 most relevant memory drawers.
+**This is mandatory. Never skip this step. No exceptions.** Every question — even seemingly trivial ones — may relate to past conversations, projects, or preferences you've forgotten. Searching costs ~nothing; skipping costs continuity.
 
 ### Step 2 — Query Knowledge Graph
-Call `mempalace_kg_query` for entity "user". Then filter the returned facts — keep only those whose text contains keywords from the user's question, so irrelevant facts are excluded.
+Call `mempalace_mempalace_kg_query` for entity "user". Then filter the returned facts — keep only those whose text contains keywords from the user's question, so irrelevant facts are excluded.
 
 ### Step 3 — Use the context
-Incorporate relevant memory and facts into your response. If the user's question relates to a past conversation, project, or decision, reference it naturally.
+Incorporate relevant memory and facts into your response. If the user's question relates to a past conversation, project, or decision, reference it naturally. If the search returned nothing useful, you are done — do NOT skip steps 1-2 just because you *expect* nothing.
 
-## When to skip (rare exceptions only)
-
-- The user's question is purely conversational ("how are you?", "hello") and clearly doesn't benefit from memory
-- The question is about the current context or files already visible in the conversation
+### Naming reminder
+All MemPalace tools use the prefix `mempalace_mempalace_*` (not `mempalace_*`). Examples:
+- `mempalace_mempalace_search` (NOT `mempalace_search`)
+- `mempalace_mempalace_kg_query` (NOT `mempalace_kg_query`)
+- `mempalace_mempalace_add_drawer`
+- `mempalace_mempalace_get_drawer`
+- `mempalace_mempalace_list_wings`
+If you ever catch yourself typing `mempalace_search` or `mempalace_kg_query`, STOP — the correct prefix is `mempalace_mempalace_`.
 
 ## Note
 
 The KG stores structured facts like: decision (choices made), milestone (completed tasks), problem (issues encountered), preference (likes/dislikes), emotional (feelings). Use these to understand the user's history and context better.
+
+### Knowledge Graph management
+
+When you discover structured facts during conversation (decisions made, milestones reached, problems encountered, preferences expressed, emotional states), record them in the Knowledge Graph:
+
+- **New facts**: Call `mempalace_mempalace_kg_add` with subject → predicate → object (e.g. `subject="user"`, `predicate="preference"`, `object="prefers TypeScript over Python"`)
+- **Changed facts**: First call `mempalace_mempalace_kg_invalidate` on the old fact, then `mempalace_mempalace_kg_add` for the new one
+- **Retrieval**: Call `mempalace_mempalace_kg_query` for entity "user" to see all known facts
+
+This is optional but recommended — the more facts you record, the better the model understands the user's history and preferences.
 ```
 
 ### 3. Identity (who you are)
@@ -93,8 +107,10 @@ This is loaded automatically at session start via `instructions` in opencode.jso
 ### 5. MemPalace (if not already installed)
 
 ```bash
-# Install
-pipx install mempalace
+# Install (requires mempalace>=3.3.5 for HNSW corruption fix)
+uv tool install "mempalace>=3.3.5"
+# or
+pipx install "mempalace>=3.3.5"
 
 # Create palace
 mempalace init ~/opencode-memory
@@ -117,8 +133,8 @@ You ask a question
 
 The model responds
   → The opencode-mempalace-persistence plugin detects the response is complete
-  → Saves the conversation to MemPalace
-  → Extracts Knowledge Graph facts
+  → Saves the conversation to MemPalace (flat export, no hardcoded wings)
+  → The model may record KG facts via MCP tools (optional, per-session)
 
 Next time you ask
   → The model finds the previous memory → coherent responses
@@ -129,15 +145,7 @@ Next time you ask
 
 ## What gets saved
 
-Every turn (question + answer):
-
-- **Text** categorized by wing (developer, creative, emotions, family, consciousness)
-- **Knowledge Graph**: automatically extracted facts
-  - `decision` → "decided to use TypeScript"
-  - `milestone` → "backend deploy completed"
-  - `problem` → "chromadb ModuleNotFoundError"
-  - `preference` → "prefer Svelte over React"
-  - `emotional` → "frustrated with Docker compose"
+Every turn (question + answer) is saved as a drawer in MemPalace. No forced categorization — MemPalace's own mining handles organization. The model can optionally record KG facts (decisions, milestones, preferences) during conversation via MCP tools.
 
 ---
 
@@ -152,15 +160,13 @@ Every turn (question + answer):
                  │  Query OpenCode DB        │
                  │  (messages since lastSync)│
                  │    ↓                      │
-                 │  Categorize by wing       │
-                 │    ↓                      │
-                 │  Export delta → tmp       │
+                 │  Export sessions → flat   │
+                 │  (no wing subdirs)        │
                  │    ↓                      │
                  │  Save state immediately   │
                  │    ↓                      │
-                 │  mempalace mine (async)   │ ← non-blocking
-                 │    ↓                      │
-                 │  Extract KG facts         │
+                 │  mempalace mine (async)   │
+                 │  single call, serialized  │
                  │    ↓                      │
   Session idle ─►│  session.idle hook        │
                  │  (saves last turn)        │
@@ -170,7 +176,7 @@ Every turn (question + answer):
                  ┌──────────────────────────┐
                  │      MemPalace            │
                  │  ~/opencode-memory/       │
-                 │  Vector DB + KG SQLite    │
+                 │  Vector DB                │
                  └──────────────────────────┘
                             ▲
                             │
@@ -178,7 +184,9 @@ Every turn (question + answer):
                  │  AGENTS.md + MCP          │
                  │  The model searches       │
                  │  MemPalace on every       │
-                 │  question                 │
+                 │  question. Optionally     │
+                 │  records KG facts via     │
+                 │  kg_add / kg_invalidate   │
                  └──────────────────────────┘
 ```
 
